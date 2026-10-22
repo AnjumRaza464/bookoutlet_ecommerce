@@ -1,0 +1,302 @@
+// BNB Book Outlet — database schema (Neon PostgreSQL)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+enum Level {
+  MATRIC
+  INTERMEDIATE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  EASYPAISA
+  EASYPAISA_MANUAL
+  COD
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  AWAITING_VERIFICATION
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         Role     @default(CUSTOMER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions  Session[]
+  addresses Address[]
+  orders    Order[]
+  wishlist  WishlistItem[]
+  verifiedPayments Payment[] @relation("PaymentVerifier")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  fullName   String
+  phone      String
+  line1      String
+  line2      String?
+  city       String
+  province   String
+  postalCode String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Board {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  slug     String  @unique
+  province String?
+  books    Book[]
+}
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  slug        String  @unique
+  description String?
+  sortOrder   Int     @default(0)
+  books       Book[]
+}
+
+model Subject {
+  id    String @id @default(cuid())
+  name  String @unique
+  slug  String @unique
+  books Book[]
+}
+
+model Publisher {
+  id      String  @id @default(cuid())
+  name    String  @unique
+  slug    String  @unique
+  website String?
+  books   Book[]
+}
+
+model Book {
+  id              String   @id @default(cuid())
+  title           String
+  slug            String   @unique
+  description     String   @default("")
+  author          String?
+  isbn            String?
+  sku             String   @unique
+  level           Level
+  classLevel      Int // 9, 10, 11, 12
+  medium          String   @default("English")
+  edition         String?
+  pages           Int?
+  coverImage      String?
+  /// Selling price in whole PKR (before book-level discount)
+  price           Int
+  /// Book-level discount in percent (0–90)
+  discountPercent Int      @default(0)
+  stock           Int      @default(0)
+  lowStockAlert   Int      @default(5)
+  isActive        Boolean  @default(true)
+  isFeatured      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  categoryId  String
+  boardId     String
+  subjectId   String
+  publisherId String
+  category    Category  @relation(fields: [categoryId], references: [id])
+  board       Board     @relation(fields: [boardId], references: [id])
+  subject     Subject   @relation(fields: [subjectId], references: [id])
+  publisher   Publisher @relation(fields: [publisherId], references: [id])
+
+  orderItems OrderItem[]
+  wishlist   WishlistItem[]
+
+  @@index([classLevel])
+  @@index([categoryId])
+  @@index([boardId])
+  @@index([subjectId])
+  @@index([isActive, isFeatured])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  bookId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bookId])
+}
+
+model Coupon {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  description String?
+  type        DiscountType
+  value       Int
+  minOrder    Int          @default(0)
+  maxUses     Int?
+  usedCount   Int          @default(0)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  orderNumber   String        @unique
+  userId        String
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod
+  paymentStatus PaymentStatus @default(UNPAID)
+
+  subtotal      Int
+  discountTotal Int     @default(0)
+  couponCode    String?
+  shippingFee   Int
+  total         Int
+
+  // Shipping address snapshot
+  fullName   String
+  email      String
+  phone      String
+  line1      String
+  line2      String?
+  city       String
+  province   String
+  postalCode String?
+  notes      String?
+
+  trackingNumber String?
+  courier        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User         @relation(fields: [userId], references: [id])
+  items    OrderItem[]
+  payments Payment[]
+  events   OrderEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  bookId    String
+  title     String
+  sku       String
+  unitPrice Int
+  quantity  Int
+  lineTotal Int
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  book      Book   @relation(fields: [bookId], references: [id])
+
+  @@index([orderId])
+  @@index([bookId])
+}
+
+model Payment {
+  id       String        @id @default(cuid())
+  orderId  String
+  method   PaymentMethod
+  status   PaymentStatus @default(PENDING)
+  amount   Int
+
+  /// Easypaisa: orderId sent to the gateway (unique per attempt)
+  gatewayOrderId String?  @unique
+  transactionId  String?
+  mobileAccount  String?
+  responseCode   String?
+  responseDesc   String?
+  rawResponse    Json?
+
+  /// Manual transfer: customer-submitted reference
+  manualTid    String?
+  manualSender String?
+
+  verifiedById String?
+  verifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  order      Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  verifiedBy User? @relation("PaymentVerifier", fields: [verifiedById], references: [id])
+
+  @@index([orderId])
+}
+
+model OrderEvent {
+  id        String      @id @default(cuid())
+  orderId   String
+  status    OrderStatus
+  note      String?
+  createdAt DateTime    @default(now())
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
